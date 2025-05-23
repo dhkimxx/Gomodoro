@@ -1,16 +1,21 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"runtime"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"github.com/gen2brain/beeep"
 )
 
-type PomodoroState int
+// 개발 모드 플래그
+var devMode bool
 
 const (
 	Focus PomodoroState = iota
@@ -24,6 +29,14 @@ const (
 	LABEL_RESUME = "Resume"
 	LABEL_RESET  = "Reset"
 )
+
+const (
+	FOCUS_TIME       = 25
+	SHORT_BREAK_TIME = 5
+	LONG_BREAK_TIME  = 15
+)
+
+type PomodoroState int
 
 type PomodoroApp struct {
 	app          fyne.App
@@ -45,17 +58,26 @@ func NewPomodoroApp() *PomodoroApp {
 	a := app.New()
 	w := a.NewWindow("Pomodoro")
 
+	// 개발 모드일 때는 시간을 초 단위로 설정
+	focusTime := FOCUS_TIME
+	timeUnit := time.Minute
+
+	if devMode {
+		timeUnit = time.Second
+		w.SetTitle("Pomodoro (Dev Mode)")
+	}
+
 	p := &PomodoroApp{
 		app:          a,
 		window:       w,
-		timerLabel:   widget.NewLabel("25:00"),
+		timerLabel:   widget.NewLabel(fmt.Sprintf("%02d:00", focusTime)),
 		stateLabel:   widget.NewLabel("Focus"),
 		sessionLabel: widget.NewLabel("Session: 1"),
 		startBtn:     widget.NewButton(LABEL_START, nil),
 		resetBtn:     widget.NewButton(LABEL_RESET, nil),
 		state:        Focus,
 		session:      1,
-		remaining:    25 * time.Minute,
+		remaining:    time.Duration(focusTime) * timeUnit,
 	}
 
 	p.startBtn.OnTapped = p.onStartTapped
@@ -91,21 +113,99 @@ func (p *PomodoroApp) updateUI() {
 	})
 }
 
+func (p *PomodoroApp) playNotification(message string) {
+	// 시스템 알림 표시 (크로스 플랫폼)
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		err = beeep.Notify("Gomodoro", message, "")
+	case "darwin":
+		err = beeep.Notify("Gomodoro", message, "")
+	default: // linux and others
+		err = beeep.Notify("Gomodoro", message, "")
+	}
+
+	if err != nil {
+		fmt.Printf("알림 오류 (%s): %v\n", runtime.GOOS, err)
+		// 알림 실패시 다이얼로그로 표시
+		fyne.Do(func() {
+			dialog.ShowInformation("알림", message, p.window)
+		})
+	}
+
+	// 시스템 알림음 재생 (크로스 플랫폼)
+	if err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration); err != nil {
+		fmt.Printf("알림음 오류 (%s): %v\n", runtime.GOOS, err)
+	}
+}
+
+func (p *PomodoroApp) startTimer() {
+	timeUnit := time.Minute
+	if devMode {
+		timeUnit = time.Second
+	}
+
+	for range p.ticker.C {
+		p.remaining -= time.Second
+		p.updateUI()
+
+		if p.remaining <= 0 {
+			p.ticker.Stop()
+
+			fyne.Do(func() {
+				p.running = false
+				p.startBtn.SetText(LABEL_START)
+			})
+
+			// Show notification with sound
+			var message string
+			if p.state == Focus {
+				message = "집중 시간이 끝났습니다. 휴식 시간을 가지세요!"
+			} else {
+				message = "휴식 시간이 끝났습니다. 다시 집중할 시간입니다!"
+			}
+
+			p.playNotification(message)
+
+			if p.state == Focus {
+				p.session++
+				if p.session%4 == 0 {
+					p.state = LongBreak
+					p.remaining = time.Duration(LONG_BREAK_TIME) * timeUnit
+				} else {
+					p.state = ShortBreak
+					p.remaining = time.Duration(SHORT_BREAK_TIME) * timeUnit
+				}
+			} else {
+				p.state = Focus
+				p.remaining = time.Duration(FOCUS_TIME) * timeUnit
+			}
+			p.updateUI()
+		}
+	}
+}
+
 func (p *PomodoroApp) onStartTapped() {
 	if p.running {
 		if p.pause {
 			p.pause = false
-			p.startBtn.SetText(LABEL_PAUSE)
+			fyne.Do(func() {
+				p.startBtn.SetText(LABEL_PAUSE)
+			})
 			p.ticker = time.NewTicker(time.Second)
 			go p.startTimer()
 		} else {
 			p.ticker.Stop()
 			p.pause = true
-			p.startBtn.SetText(LABEL_RESUME)
+			fyne.Do(func() {
+				p.startBtn.SetText(LABEL_RESUME)
+			})
 		}
 	} else {
 		p.running = true
-		p.startBtn.SetText(LABEL_PAUSE)
+		fyne.Do(func() {
+			p.startBtn.SetText(LABEL_PAUSE)
+		})
 		p.ticker = time.NewTicker(time.Second)
 		go p.startTimer()
 	}
@@ -115,39 +215,22 @@ func (p *PomodoroApp) onResetTapped() {
 	if p.ticker != nil {
 		p.ticker.Stop()
 	}
+
+	timeUnit := time.Minute
+	if devMode {
+		timeUnit = time.Second
+	}
+
 	p.state = Focus
 	p.session = 1
-	p.remaining = 25 * time.Minute
+	p.remaining = time.Duration(FOCUS_TIME) * timeUnit
 	p.running = false
 	p.pause = false
-	p.startBtn.SetText(LABEL_START)
-	p.updateUI()
-}
 
-func (p *PomodoroApp) startTimer() {
-	for range p.ticker.C {
-		p.remaining -= time.Second
+	fyne.Do(func() {
+		p.startBtn.SetText(LABEL_START)
 		p.updateUI()
-		if p.remaining <= 0 {
-			p.ticker.Stop()
-			p.running = false
-			p.startBtn.SetText(LABEL_START)
-			if p.state == Focus {
-				p.session++
-				if p.session%4 == 0 {
-					p.state = LongBreak
-					p.remaining = 15 * time.Minute
-				} else {
-					p.state = ShortBreak
-					p.remaining = 5 * time.Minute
-				}
-			} else {
-				p.state = Focus
-				p.remaining = 25 * time.Minute
-			}
-			p.updateUI()
-		}
-	}
+	})
 }
 
 func formatTimer(d time.Duration) string {
@@ -157,6 +240,10 @@ func formatTimer(d time.Duration) string {
 }
 
 func main() {
+	// 개발 모드 플래그 정의
+	flag.BoolVar(&devMode, "dev", false, "Enable development mode (1 minute = 1 second)")
+	flag.Parse()
+
 	p := NewPomodoroApp()
 	p.window.ShowAndRun()
 }
