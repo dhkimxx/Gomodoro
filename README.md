@@ -80,7 +80,7 @@ go build
 ## 프로젝트 구조
 
 ```
-gomodoro/
+Gomodoro/
 ├── main.go        # 메인 애플리케이션 코드
 ├── go.mod         # Go 모듈 정의
 ├── go.sum         # 의존성 체크섬
