@@ -1,0 +1,19 @@
+# 실행 파일
+gomodoro
+gomodoro.exe
+
+# Go 빌드 및 디버그 파일
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+debug/
+
+# IDE 설정 파일
+.idea/
+.vscode/
+*.swp
+*.swo 
