@@ -34,8 +34,8 @@ Gomodoro는 Go 언어로 작성된 크로스 플랫폼 포모도로 타이머 �
 
 ```bash
 # 저장소 클론
-git clone https://github.com/dhkimxx/gomodoro.git
-cd gomodoro
+git clone https://github.com/dhkimxx/Gomodoro.git
+cd Gomodoro
 
 # 의존성 설치
 go mod tidy
